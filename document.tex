@@ -35,8 +35,8 @@ urlcolor=magenta,%外部参照しているURLの色指定
 colorlinks=false,%リンクの文字に色をつけるか
 linkbordercolor={0 0 0},%リンクを囲むボックスの色
 pdfborder={0 0 0},%
-pdftitle={単眼カメラによる動的構造物の三次元計測},%
-pdfsubject={2022年度東京大学大学院工学系研究科社会基盤学専攻卒業論文},%
+pdftitle={幾何学的条件を考慮した Defocusing 3D Gaussian Splatting},%
+pdfsubject={2024年度東京大学大学院工学系研究科社会基盤学専攻修士論文},%
 pdfauthor={小林 健},%
 pdfkeywords={},%
 ]{hyperref}%しおり・文書情報
@@ -120,9 +120,9 @@ pdfkeywords={},%
 			\hss}}}%
 
 %----------表紙のレイアウト----------
-\def\@thesis{2022年度卒業論文}
+\def\@thesis{2024年度修士論文}
 \def\@ChiefExaminer{主査：}
-%\def\@SubChiefExaminer{副査：}
+\def\@SubChiefExaminer{副査：}
 \def\id#1{\def\@id{#1}}
 \def\EngTitle#1{\def\@EngTitle{#1}}
 \def\department#1{\def\@department{#1}}
@@ -138,12 +138,12 @@ pdfkeywords={},%
 		{\Large \@EngTitle \par}
 		\vspace{10mm}
 		{\Large \@id \@author \par}
-		\vspace{54mm}
+		\vspace{40mm}
 		{\Large \bf \@ChiefExaminer}
 		{\Large \@ChiefName \par}
 		\vspace{3mm}
-		%{\Large \bf \@SubChiefExaminer}
-		%{\Large \@SubChiefName \par}
+		{\Large \bf \@SubChiefExaminer}
+		{\Large \@SubChiefName \par}
 		\vspace{10mm}
 		\begin{tabularx}{100mm}{|X|r|r|}
 			\hline
@@ -158,7 +158,16 @@ pdfkeywords={},%
 			\begin{minipage}{15mm}
 			\end{minipage}%
 			\\ \hline
-
+			\rule[-2mm]{0mm}{14mm} 
+			\begin{minipage}{50mm}
+			\end{minipage}%
+			&%
+			\begin{minipage}{15mm}
+			\end{minipage}%
+			&%
+			\begin{minipage}{15mm}
+			\end{minipage}%
+			\\ \hline
 		\end{tabularx}
 		\par
 		\vspace{20mm}
@@ -173,14 +182,14 @@ pdfkeywords={},%
 \makeatother
 
 %----------表紙の内容をここに書く----------
-\title{単眼カメラによる動的構造物の三次元計測}
-\date{2023年2月1日}
-\EngTitle{3-Dimensional Measurement of Dynamic Structures\\ Using Monocular Camera}
-\department{東京大学 工学部　社会基盤学科}
-\id{03-210028}
+\title{幾何学的条件を考慮した\\Defocusing 3D Gaussian Splatting}
+\date{2025年1月21日}
+\EngTitle{Defocusing 3D Gaussian Splatting\\Considering Geometric Condition}
+\department{東京大学大学院 工学系研究科 社会基盤学専攻}
+\id{37-236014}
 \author{小林 健}
 \ChiefName{布施 孝志 教授}
-%\SubChiefName{XXX}
+\SubChiefName{竹内 渉 教授}
 
 \begin{document}
 \pagenumbering{Roman}%ページ番号を大文字のローマ数字にする
