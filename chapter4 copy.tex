@@ -1,0 +1,641 @@
+\section{提案手法の適用}\label{sec:method_appliance}
+本章では\ref{sec:method_creation}章で述べた手法を実データに対して適用し，評価する．
+本研究では回転する扇風機の羽根を剛体運動をする動的物体とみなし，以下の三つの項目を推定，評価した．
+\begin{enumerate}
+	\item 動的物体上の各画像座標の画像上の変位\label{item:flow}
+	\item 各時刻での動的物体上の各画像座標に対応する三次元位置\label{item:location}
+	\item 動的物体上の各画像座標に対応する三次元空間内の変位\label{item:3d_trans}
+\end{enumerate}
+項目\ref{item:flow}では，オプティカルフロー推定の結果を用いて逐次的に画像上の追跡を行った場合の画像座標の推定精度を評価した．
+項目\ref{item:location}，\ref{item:3d_trans}については，提案手法である動的物体に対してSLAMを適用する方法と，比較手法である単眼深度推定を用いる方法の二手法で比較した．
+
+\subsection{検証データについて}\label{subsec:data}
+本節では検証に用いたデータの説明をする．
+
+\subsubsection{入力データ}\label{subsubsec:input_data}
+本研究では入力データとして，扇風機が回転する様子を静止したハイスピードカメラから撮影した連続RGB画像を用いた（図\ref{fig:input_data}）．
+合計200枚のRGB連続画像であり，この動画の中で扇風機の羽は二周弱回転する．
+なお，元のデータはモノクロ画像であったものを，RGBすべての画素値を同じ値にすることでRGB画像とした．
+フレームレートは2000フレーム毎秒であり，動画全体は実際の0.1秒間にあたる．
+解像度は横1280×縦1048ピクセルである．
+扇風機の羽根は，一枚が透明，その他の三枚の羽には透明な羽根から時計回りで順に，小，大，中，三種類の大きさのドットパターンが付与されている．
+これらのドットパターンは後述するデジタル画像相関法に用いられた．
+大きさは，羽部分の直径が約270 mm, 奥行きが最大70 mmとである．
+
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.8\linewidth]{images/chapter4/input_images.png}
+	\caption[入力画像]{入力画像（全200枚）}
+	\label{fig:input_data}
+\end{figure}
+
+\begin{comment}
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[t]{0.45\hsize}
+		\centering
+		
+		\includegraphics[width=0.8\linewidth]{images/chapter4/input_data000.png}
+		\subcaption{$t=0$}
+		\label{fig:input_image0}
+		
+	\end{minipage}
+	\begin{minipage}[t]{0.45\hsize}
+		\centering
+		
+		\includegraphics[width=0.8\linewidth]{images/chapter4/input_images.png}
+		\label{fig:input_images}
+	\end{minipage}
+	\caption[動的物体のセグメンテーション]{入力画像}
+	\label{fig:input}
+\end{figure}
+\end{comment}
+
+\subsubsection{正解データ}\label{subsubsec:correct_data}
+
+本研究では正解データとして，扇風機の羽根上の表面の点の三次元座標を用いた（図\ref{fig:correct_points}）．
+これは二視点から撮られた連続画像を用いたデジタル画像相関法によって得られたものであり，全部で2550点分（フレームごとに欠損あり）のデータである．
+データは各時刻を通して羽根上の共通の点を追跡しており，各点の三次元座標の時系列データとなっている．
+正解データの測定は1000回毎秒であり，入力動画と対応する100フレーム（0.1秒）分のデータを用いた．
+一番最初に正解データが取得された時刻を$t=0$とし，$t=0$から数えて$k$番目の正解データが取得された時刻を$t=k$と定義する．
+すなわち，データは全部で$t=0$から$t=99$まであり，これが実際の0.000秒から0.099秒の間に取得されたデータとなる．
+なお，正解データの三次元点を画像上に投影した点の画像座標を，本論文では正解データの画像座標と呼ぶ．
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[c]{0.7\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/correct_points.png}
+		\subcaption{正解データを可視化した様子}
+		\label{fig:correct_points3D}
+		
+	\end{minipage}
+	\begin{minipage}[c]{0.25\hsize}
+		\centering
+		
+		\includegraphics[width=1\linewidth]{images/chapter4/image_plot.png}
+		\subcaption{画像上に投影された正解データ（緑色の点）}
+		\label{fig:plot_image}
+	\end{minipage}
+	\caption[正解データの様子]{正解データの様子}
+	\label{fig:correct_points}
+\end{figure}
+
+\subsection{セグメンテーションの適用}\label{subsec:segmentation_eval}
+
+本項では画像内で動的物体を分離するために用いたセグメンテーションの結果を示す．
+本研究では扇風機の4枚の羽根のうち透明でない3枚の羽根を，剛体運動をする一つの動的物体とみなしセグメンテーションを行った．
+初期マスクとして入力動画の1枚目の画像と対応する図\ref{fig:seg000}のようなマスクを与え，それ以降の200枚の画像に対してセグメンテーションを行った．
+セグメンテーションの結果の一部を次ページに示す（図\ref{fig:segmentaiton_output}）．
+全体として，扇風機の羽根という未知の物体に対しても，200フレームという長尺にわたってセグメンテーションが安定して行えていた．
+一部，図\ref{fig:seg050}や図\ref{fig:seg150}の大きなドットパターンの羽根（左側の羽根）の内側部分のように，初期マスクと一致していない部分が確認された．
+これは，大きなドットパターンの羽根が画面左側にある際に，内側部分がカメラから見て中心の回転軸の奥側に隠れてしまうことによって生じる誤対応と考えられる．
+また，初期マスクでは含まれていなかった羽根外側の白いポイント状の部分がマスクに含まれてしまう事象（\ref{fig:seg075}の右の羽根，\ref{fig:seg125}の上の羽根など）も発生した．
+これは羽根の境界部分は白っぽい色をしているため，白いポイントの部分を境界の内部と判定したためだと考えられる．
+
+\newpage
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000000.png}
+		\subcaption{0枚目（入力）}
+		\label{fig:seg000}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000025.png}
+		\subcaption{25枚目}
+		\label{fig:seg025}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000050.png}
+		\subcaption{50枚目}
+		\label{fig:seg050}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000075.png}
+		\subcaption{75枚目}
+		\label{fig:seg075}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000100.png}
+		\subcaption{100枚目}
+		\label{fig:seg100}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000125.png}
+		\subcaption{125枚目}
+		\label{fig:seg125}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000150.png}
+		\subcaption{150枚目}
+		\label{fig:seg150}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/segmentation/image-000175.png}
+		\subcaption{175枚目}
+		\label{fig:seg175}
+	\end{minipage}
+	\caption[セグメンテーションの結果]{セグメンテーションの結果．入力画像に出力されたマスク（赤色）を重ねた．}
+	\label{fig:segmentaiton_output}
+\end{figure}
+
+\subsection{オプティカルフロー推定の精度評価}\label{subsec:opticalflow_eval}
+ここでは，比較手法に用いるために前処理として行った，オプティカルフロー推定の適用結果および精度評価を示す．
+なお，オプティカルフロー推定は正解データに対応する時刻の画像100枚を入力とした．
+\subsubsection*{適用結果}
+オプティカルフロー推定の適用結果は図\ref{fig:optical_flow_output}のようになった．
+各時刻で，羽根の部分が回転している様子はきれいにとらえられている．
+一方でフローを正確に推定できていない部分としては，図\ref{fig:flow0}の上部や図\ref{fig:flow20}の右上部分のような扇風機よりも外側の部分，扇風機の回転軸などがあげられる．
+これらの部分は色の変化や輝度の変化が少ないことが原因と考えられる．
+実際に，透明な羽根上にある黒で囲まれた白い丸の部分は図\ref{fig:flow30}のように動きが認識されている．
+また，透明な羽根の部分についても止まっていると認識されている．
+これは，透明な羽根の奥側の部分を捉えているためだといえる．
+各羽根のドットパターンの大小の違いによるオプティカルフロー推定結果の変化は確認されなかった．
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/optical_flow/flowt0.png}
+		\subcaption{$t=0$}
+		\label{fig:flow0}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/optical_flow/flowt10.png}
+		\subcaption{$t=10$}
+		\label{fig:flow10}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/optical_flow/flowt20.png}
+		\subcaption{$t=20$}
+		\label{fig:flow20}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/optical_flow/flowt30.png}
+		\subcaption{$t=30$}
+		\label{fig:flow30}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/optical_flow/flowt40.png}
+		\subcaption{$t=40$}
+		\label{fig:flow40}
+	\end{minipage}
+	\begin{minipage}[t]{0.4\hsize}
+		\centering
+		\includegraphics[width=0.4\linewidth]{images/flow_legends.png}
+		\subcaption{フローの凡例．フローの距離と向きにそれぞれ明度と色相が対応する．}
+		\label{fig:flow_legends}
+	\end{minipage}
+	\caption[オプティカルフロー推定の結果]{オプティカルフロー推定の結果．各時刻の対応する画像（左）と出力（右）}
+	\label{fig:optical_flow_output}
+\end{figure}
+
+\subsubsection*{精度評価}
+本研究では画像上の位置の評価として，各時刻における正解データの画像座標$\mathbf{p}^{*}_{i}$と，オプティカルフローにより推定された座標$\mathbf{p}_i$の誤差を以下の二指標で評価した．
+正解データは羽根上に分布しているため，羽根の部分以外のフローの評価は行えていない．
+なお，データ数$N$は各時刻の評価に用いた点の数，$N_{in}$は推定された点の画像座標が正解点の半径１画素以内にある点の合計数である．
+\begin{itemize}
+	\item Endpoint Error(EE) : $\displaystyle \frac{1}{|{N}|} \sum_{{i} \in {N}}\left\|\mathbf{p}_{{i}}-\mathbf{p}_i^*\right\|$
+	\\
+	\\
+	\item 一画素以内の割合 : $\displaystyle \frac{|{N_{in}}|}{|{N}|}$
+\end{itemize}
+まず各時刻のオプティカルフロー推定の精度評価として，$t\geqq20$の各時刻のデータに対して，一時刻先の推定画像座標の精度評価を行った結果を図\ref{fig:of_eval0}に示す．
+全時刻の平均はEEが0.155308 ピクセル，半径一画素以内に収まる割合が0.999228 であった．
+羽根の内部では非常に高い精度でオプティカルフロー推定されているといえる．
+一方で，二指標ともに悪い結果となった時刻$t=51$では，大きなドットパターンの羽根の境界部分でオプティカルフローの推定がうまくいっておらず，推定点と正解点の誤差が大きくなっていることがわかる（図\ref{fig:t51}）．
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/flow/ee0.png}
+		\subcaption{EE}
+		\label{fig:ee0}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/flow/1gaso0.png}
+		\subcaption{一画素以内の割合}
+		\label{fig:1gaso0}
+	\end{minipage}
+	\caption{一時刻先のオプティカルフロー推定の精度}
+	\label{fig:of_eval0}
+\end{figure}
+\begin{figure}[H]
+	\centering
+	\includegraphics[width=0.5\linewidth]{images/chapter4/flow/t51_2.png}
+	\caption[時刻$t=51$での推定点と正解点]{時刻$t=51$での推定点（緑）と正解点（赤）の様子}
+	\label{fig:t51}
+\end{figure}
+
+次に，画像上の追跡の精度評価として，$t=51$の正解データ画像座標を初期値として与え，式\ref{eq:tracking}にもとづいて各点の追跡を行った場合の精度を示す．
+なお，ここで推定された各時刻の画像座標は，比較手法である単眼深度推定を用いた手法の追跡精度を評価する際に使用した．
+オプティカルフローの推定結果を用いて逐次的に各点の位置を画像上で推定した場合の精度は図\ref{fig:of_eval1}のようになった．
+時間がたつにつれてオプティカルフロー推定の誤差が蓄積されていることがわかる．
+最後のフレームである$t=99$においては，EEが2.1 ピクセル，一画素以内の割合が0.232となった．
+半径一画素以内の割合は，$t=55$で0.973であったのに対し，その5フレーム後の$t=63$には0.642になるなど，十数フレームの間に急激に低下している．
+$t=80$付近から$t=90$付近にかけてEEが減少，一画素以内の割合が上昇しているのは，小さなドットパターンの羽根で正解データの画像座標に近づく点が増えたためだと確認できる（図\ref{fig:t80-90}）．
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/flow/ee2.png}
+		\subcaption{EE}
+		\label{fig:ee2}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/flow/1gaso2.png}
+		\subcaption{一画素以内の割合}
+		\label{fig:1gaso2}
+	\end{minipage}
+	\caption{画像上の追跡の精度}
+	\label{fig:of_eval1}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.7\linewidth]{images/chapter4/flow/image_80_trimmed.png}
+		\label{fig:t80}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\includegraphics[width=0.7\linewidth]{images/chapter4/flow/image_90_trimmed.png}
+		\label{fig:t90}
+	\end{minipage}
+	\centering
+	\caption[$t=80$と$t=90$における誤差一画素以内の点の変化]{$t=80$（左）と$t=90$（右）における誤差一画素以内の点の変化．緑色の点が，推定点と正解点の誤差が１画素以内の点．}
+	\label{fig:t80-90}
+\end{figure}
+
+\subsection{動的物体の三次元位置座標推定の精度評価}\label{subsec:position_eval}
+本節では動的物体に対してSLAMを行う提案手法の適用結果を示したのち，各時刻で正解データの画像座標を与えた場合の比較手法と提案手法の三次元位置座標推定の精度を比較する．
+評価はSLAMの生成する三次元点群が安定する時刻$t\geqq{20}$で行った．
+各時刻で画像上に投影された正解データの各点を二つの手法でそれぞれ三次元再構成し，正解データの三次元位置と推定点の三次元位置の誤差で評価した．
+
+\subsubsection*{動的物体に対するSLAMの適用}
+ここではセグメンテーションで得た動的物体のマスクを用いて，動的物体に対してSLAMを適用した結果を示す．
+Visual SLAMは数多くのアーキテクチャが存在しているが，本研究ではMur-Artalら\cite{mur2017orb}のORB-SLAM2をベースに手法を構築した．
+入力となるRGB画像から特徴点を検出し，その中からマスクを用いて動的物体の画素領域上にある特徴点のみを抽出した（図\ref{fig:feature_image}）．
+それらの特徴点を用いてSLAMを行い，自己位置として扇風機の羽根に対するカメラの各時刻の相対自己位置を，周辺環境地図として扇風機の羽根の表面の三次元点群を得た（図\ref{fig:slam_output}）
+SLAMにより得られた相対自己位置および三次元点群は実空間とスケールがあっていないため，手作業により得られた座標空間の値を定数倍することでスケールを調整した．
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/feature_image.png}
+		\subcaption[マスクにより抽出された特徴点と排除された特徴点]{マスクにより抽出された特徴点（緑）と排除された特徴点（赤）}
+		\label{fig:feature_image}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/slam_output1.png}
+		\subcaption[SLAMの出力の様子]{SLAMの出力の様子．緑の四角い枠がカメラの相対自己位置，黒い点群が羽根の三次元点群}
+		\label{fig:slam_output}
+	\end{minipage}
+	\caption[動的物体に対するSLAMの適用]{動的物体に対するSLAMの適用}
+	\label{fig:apply_SLAM}
+\end{figure}
+\subsubsection*{三次元位置の評価指標}
+本研究では三次元位置の評価として，各時刻における正解データの三次元座標$\mathbf{r}^{*}_{i}$と，推定された三次元座標$\mathbf{r}_i$の誤差を以下の三指標で評価した．
+なお，データ数$N$は各時刻における評価に用いた点の数である．
+\begin{itemize}
+	\item Relative Absolute Error(Abs Rel):$\displaystyle \frac{1}{|N|} \sum_{i \in N} \frac{\left\|r_i-r_i^*\right\|}{\left\|r_i^*\right\|}$
+	\\
+	\\
+	\item Mean Absolute Error(MAE):$\displaystyle \frac{1}{|{N}|} \sum_{{i} \in {N}}\left\|r_{{i}}-r_i^*\right\|$
+	\\
+	\\
+	\item Root Mean Square Error(RMSE):$\displaystyle \sqrt{\frac{1}{|{N}|} \sum_{{i} \in {N}}\left\|r_{{i}}-r_i^*\right\|^2}$
+	
+\end{itemize}
+Abs Relは推定値と真値の距離の差を真値までの距離で除した値の平均であり，評価する点群のスケールによらない値である．
+MAE,RMSEはどちらも推定値と真値の距離の差をもとに平均化した値であり，扱う点群スケールによって大きさが左右される．
+
+\subsubsection{比較手法の位置座標推定の精度評価}
+単眼深度推定を用いた手法の各時刻の結果を図\ref{fig:monodepth_position_result}に示す．
+各指標の全時刻での平均は，Abs Relが0.0199，MAEが17.825 mm, RMSEが22.166 mm となった．
+Abs Relに関しては，カメラから1 m離れた物体に対して約20 cmの誤差が生じるほどということになる．
+三指標のグラフは同様な形状をしており，約50フレームおきに周期性を持っている．
+これは，羽根が約50フレームで一周するため，約50フレームおきに同じような画像が入力になったことが原因と考えられる．
+また，いずれの指標でも$t=55$で大きな値をとっている．
+これは，スケール調整の際に絶対深度を与えた点（全部で5つ）の推定相対深度の値が近かったことにより，スケールパラメタ$\omega_1$が大きな値をとったことが原因と考えられる．
+実際に三次元空間上に推定点をプロットした様子を見ると，奥行き方向に推定点が広く散らばっている（図\ref{fig:depth_position_t55}）．
+各指標が小さな値をとっている$t=90$では，推定された点が一つの深度付近に分布していることがわかる（図\ref{fig:depth_position_t90}）．
+これは，スケール調整の際に絶対深度を与えた点の推定相対深度の値が遠かったことにより，スケールパラメタ$\omega_1$が小さくなり，シフトパラメタ$\omega_0$付近に推定された絶対深度が集中したためと考えられる．
+単眼深度推定を用いた手法では羽根の深度を正確には推定できておらず，相対深度から絶対深度にスケールを調整する際のパラメタの値の違いにより，誤差の値も大きく変わってくるといえる．
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/depth_position_t55.png}
+		\subcaption{$t=55$の様子}
+		\label{fig:depth_position_t55}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/depth_position_t90.png}
+		\subcaption{$t=90$の様子}
+		\label{fig:depth_position_t90}
+	\end{minipage}
+	\caption[単眼深度推定を用いた手法における特徴的な時刻の様子]{単眼深度推定を用いた手法における特徴的な時刻の様子．白色が正解点，緑色が推定された点．}
+	\label{fig:monodepth_position2}
+\end{figure}
+
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/absrel1.png}
+		\subcaption{Abs Rel}
+		\label{fig:absrel1}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/mae1.png}
+		\subcaption{MAE}
+		\label{fig:mae1}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/rmse1.png}
+		\subcaption{RMSE}
+		\label{fig:rmse1}
+	\end{minipage}
+	\caption{単眼深度推定を用いる手法の位置座標推定の精度}
+	\label{fig:monodepth_position_result}
+\end{figure}
+
+\newpage
+\subsubsection{提案手法の位置座標推定の精度評価}\label{3d_position_eval_slam}
+提案手法である，動的物体にSLAMを用いた手法の結果を以下に示す．
+各指標の全時刻での平均は表\ref{table:compare_position}のようになった．
+比較手法である単眼深度推定を用いた手法と比べ，すべての指標で90 \%以上の誤差の低減が確認された．
+Abs Relに関しては，カメラから1 m離れた物体に対して約1 mmの誤差が生じる程度，MAEも1 mm以内と高い精度で正解データの三次元位置を復元できているといえる．
+
+\begin{table}[H]
+	\caption{各指標の全時刻での平均値}
+	\label{table:compare_position}
+	\centering
+	\begin{tabular}{lcc}
+		\hline
+		評価指標  & 単眼深度推定を用いる手法  &  SLAMを用いる手法  \\
+		\hline \hline
+		Abs Rel  & 0.0199 & 0.0011 \\
+		\hline
+		MAE (mm)  & 17.825 & 0.9446 \\
+		\hline
+		RMSE (mm)  & 22.166 & 1.6227 \\
+		\hline
+	\end{tabular}
+\end{table}
+\begin{comment}
+\hline
+評価指標  & 単眼深度推定を用いる手法  &  SLAMを用いる手法  \\
+\hline \hline
+Abs Rel  & 0.01992644 & 0.001059725 \\
+\hline
+MAE (mm)  & 17.825 & 0.9446875 \\
+\hline
+RMSE (mm)  & 22.16625 & 1.62275 \\
+\hline
+\end{comment}
+各時刻の評価指標の推移を図\ref{fig:slam_position_result}に示す．
+時刻ごとの評価指標の推移を見ても，三指標ともに平均値の付近を推移しており，数値のブレは単眼深度推定を用いる手法と比べると少ない．
+三指標のグラフの形状は$t=80$付近を除いて同じような形状をしている．
+Abs Rel, MAEともに最も低い値をとった$t=65$では高い精度で三次元座標を推定できていることが確認できる（図\ref{fig:slam_position2}）．
+RMSEが他の二指標と比べて大きくなっている$t=81$ではカメラに向かって左側の羽根の一部で，深度方向に大きな誤差が出ていることが確認できる（図\ref{fig:slam_position3}）．
+これはSLAMによって環境地図として生成された動的物体の疎な三次元点群が，外れ値となる点群を多く含んでいた影響といえる（図\ref{fig:slam_position4}）．
+それにより大きな誤差を持ったいくつかの推定点が，RMSEを大きく引き上げる結果となった．
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/slam_position_t65_1.png}
+		\subcaption{右斜め横から見た様子}
+		\label{fig:slam_position_t65_1}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/slam_position_t65_2.png}
+		\subcaption{右の真横から見た様子}
+		\label{fig:slam_position_t65_2}
+	\end{minipage}
+	\caption[SLAMを用いる手法における$t=65$の様子]{SLAMを用いる手法における$t=65$の様子．白色が正解点，緑色が推定された点．}
+	\label{fig:slam_position2}
+\end{figure}
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/slam_position_t81_1.png}
+		\subcaption{左斜め横から見た様子}
+		\label{fig:slam_position_t81_1}
+	\end{minipage}
+	\begin{minipage}[b]{0.45\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/slam_position_t81_2.png}
+		\subcaption{左の真横から見た様子}
+		\label{fig:slam_position_t81_2}
+	\end{minipage}
+	\caption{SLAMを用いる手法における$t=81$の様子}
+	\label{fig:slam_position3}
+\end{figure}
+
+\begin{figure}
+	\begin{minipage}[b]{0.5\hsize}
+		\centering
+		\includegraphics[width=0.8\linewidth]{images/chapter4/position/slam_position_t81_points.png}
+		\subcaption{点群全体の様子}
+		\label{fig:slam_position_t81_points}
+	\end{minipage}
+	\begin{minipage}[b]{0.35\hsize}
+		\centering
+		\includegraphics[width=0.6\linewidth]{images/chapter4/position/slam_position_t81_points2.png}
+		\subcaption{点群の左羽根付近の様子}
+		\label{fig:slam_position_t81_points2}
+	\end{minipage}
+	\caption{SLAMの出力として得られた$t=81$の疎な点群}
+	\label{fig:slam_position4}
+\end{figure}
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/absrel2.png}
+		\subcaption{Abs Rel}
+		\label{fig:absrel12}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/mae2.png}
+		\subcaption{MAE}
+		\label{fig:mae2}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/position/rmse2.png}
+		\subcaption{RMSE}
+		\label{fig:rmse2}
+	\end{minipage}
+	\caption{SLAMを用いる手法の位置座標推定の精度}
+	\label{fig:slam_position_result}
+\end{figure}
+
+\subsection{動的物体の追跡の精度評価}\label{subsec:tracking_eval}
+本節では，オプティカルフローと単眼深度推定を組み合わせた比較手法と，動的物体にSLAMを適用する提案手法の二手法で追跡の精度評価を行う．
+どちらも$t=51$の正解点のデータを初期値として与え，$t\geqq51$での各点の三次元座標を推定した．
+そして，推定点の三次元座標と正解データの三次元座標の誤差を追跡の精度として評価した．
+評価指標は前節と同じAbs Rel, MAE,　RMSEの三指標を用いた．
+
+\subsubsection{比較手法の追跡の精度評価}\label{subsubsec:2d_tracking_eval}
+比較手法ではオプティカルフロー推定と単眼深度推定を組み合わせることで動的物体の追跡を実現した．
+\ref{subsec:opticalflow_eval}節にあるように，$t=51$での正解データの画像座標を初期値として，オプティカルフローの推定結果を逐次的に用いることで画像上で各点を追跡した．
+こうして追跡された画像座標をもとに単眼深度推定の結果を用いて三次元再構成した推定点の精度を図\ref{fig:monodepth_tracking_result}に示す．
+三指標のグラフの形状はほぼ同じであり，前節の深度推定を用いた深度推定の結果である図\ref{fig:monodepth_position_result}の$t\geqq51$の部分とすべての指標において近い値となった．
+これは，オプティカルフロー推定を逐次的に行うことで累積した画像に平行な方向の誤差よりも，単眼深度推定によって生じた深度方向の誤差の方が，追跡精度に相対的に大きな影響を及ぼしたということである．
+
+\begin{figure}[H]
+	\centering
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/absrel1.png}
+		\subcaption{Abs Rel}
+		\label{fig:tracking_absrel1}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/mae1.png}
+		\subcaption{MAE}
+		\label{fig:tracking_mae1}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/rmse1.png}
+		\subcaption{RMSE}
+		\label{fig:tracking_rmse1}
+	\end{minipage}
+	\caption{オプティカルフロー推定と単眼深度推定を用いる手法の追跡精度}
+	\label{fig:monodepth_tracking_result}
+\end{figure}
+
+\subsubsection{提案手法の追跡の精度評価}\label{subsubsec:3d_tracking_eval}
+提案手法では，SLAMにより得られた各時刻のカメラの相対自己位置を用いて，初期位置である$t=51$の三次元位置を座標変換していくことで三次元空間上での追跡を可能とした．
+本研究では追跡に用いる三次元点の初期位置として以下の二つの条件を用い，それぞれについて評価した．
+\begin{itemize}
+\item [条件1]$t=51$の正解データの画像座標をSLAMの出力を元に三次元再構成した三次元座標
+\item [条件2]$t=51$の正解データの三次元座標
+\end{itemize}
+条件1は$t=51$の正解データの画像座標をもとに，$t=51$でのSLAMの出力を用いて推定された三次元座標を，各時刻のカメラの相対自己位置を用いて追跡（座標変換）していく．
+そのため，$t=51$におけるSLAMの三次元復元の精度および，$t\geqq51$のカメラの相対自己位置の推定精度の両者が影響する．
+一方で，条件2での出力は正解データの三次元座標をカメラの相対自己位置を用いて座標変換したものであり，SLAMにより得られたカメラの相対自己位置のみが影響する精度評価となる．
+
+各時刻での両条件の精度評価の結果を図\ref{fig:slam_tracking_result}に示す．
+まずは正解データの画像座標を初期値として与えた条件1についての結果を確認する．
+すべての時刻を通じてAbs Relは0.0014以下，MAEは1.2 mm以下，RMSEは1.7 mm以下と高い精度で追跡が行えている．
+図\ref{fig:monodepth_tracking_result}で示した比較手法の結果と比べると，すべての時刻を通じて90 \%以上の誤差の低減が確認された．
+三指標ともに時刻による誤差の変化は小さく，$t=51$での誤差とほぼ同じ値を取った．
+これは$t=51$において正解データの画像座標から再構成された三次元点群の誤差が，以降追跡においても強く影響したことが原因と考えられる．
+実際に，真横から見た場合に$t=51$の時点で生じていた深度方向の誤差が大きい点は，その後の時刻においても他の点と比べて誤差の大きい点であり続けている（図\ref{fig:slam_tracking_jouken1}）．
+また，正面から見た場合は推定点と正解点がほとんど重なっていることから，カメラ画面に平行な方向と比べて，カメラ深度方向の誤差がSLAMを用いた提案手法の追跡で支配的であるといえる．
+
+次に正解データの三次元座標を直接初期値として追跡を行った条件2についてである．
+すべての時刻を通じてAbs Relは0.0011以下，MAEは1.0 mm以下，RMSEは1.1 mm以下と，こちらも条件1と同様に高い精度で追跡が行えている．
+条件1と比べて各時刻のMAEとRMSEの差が小さく，相対自己位置の誤差が原因で，小さな誤差を持つ点が全体的に生じていることがわかる．
+三指標ともに，$t=51$時点から$t=77$付近までにかけて上昇し，その後$t=99$にかけて緩やかに誤差が減少している．
+$t=51$から$t=77$までというのは入力動画の中で扇風機の羽根が半周ほど回転する時間間隔であり，$t=77$付近は$t=51$との相対自己位置の距離の差が最も大きくなる時刻である．
+SLAMを行う際に，以前の時刻に取得された特徴点との対応付けが行われているため，$t=51$の初期位置に近い部分ほど，初期位置の付近で見つかった特徴点との対応付けがしやすく，自己位置の推定精度が上がると考えられる．
+このことから，$t=51$時点との相対自己位置の距離の差が最も大きくなる$t=77$付近で誤差が上昇し，その後羽根が初期位置に近づくにつれて誤差が減少したと考えられる．
+
+また，条件1と条件2のグラフを比べると，$t=56, 58, 96$のような点で，両条件で誤差が一時的に上昇しているのがわかる．
+条件2で誤差が大きくなるということは，その時刻では相対自己位置推定の誤差が大きくなっているということである．
+つまり，条件1では$t=51$時点の初期位置の誤差が支配的ではあるものの，相対自己位置推定の誤差の影響も一定程度受けていることが確認された．
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_51.png}
+		\subcaption{$t=51$（初期値）}
+		\label{fig:tracking_t51}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_60.png}
+		\subcaption{$t=60$}
+		\label{fig:tracking_t60}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_70.png}
+		\subcaption{$t=70$}
+		\label{fig:tracking_t70}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_80.png}
+		\subcaption{$t=80$}
+		\label{fig:tracking_t80}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_90.png}
+		\subcaption{$t=90$}
+		\label{fig:tracking_t90}
+	\end{minipage}
+	\begin{minipage}[t]{0.45\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/t_99.png}
+		\subcaption{$t=99$}
+		\label{fig:tracking_t99}
+	\end{minipage}
+	\caption[条件1の三次元復元結果を二つの視点から見た様子]{条件1の三次元復元結果を正面（左図）と真横（右図）から見た様子．白が正解点，緑が推定点．正面から見た際はずれが少ないのに対し，奥行き方向にはすべての時刻で大きくずれている点が複数ある．}
+	\label{fig:slam_tracking_jouken1}
+\end{figure}
+
+\begin{figure}[h]
+	\centering
+	\begin{minipage}[t]{0.6\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/absrel5.png}
+		\subcaption{Abs Rel}
+		\label{fig:tracking_absrel2}
+	\end{minipage}
+	\begin{minipage}[t]{0.6\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/mae5.png}
+		\subcaption{MAE}
+		\label{fig:tracking_mae2}
+	\end{minipage}
+	\begin{minipage}[t]{0.6\linewidth}
+		\centering
+		\includegraphics[width=0.9\linewidth]{images/chapter4/tracking/rmse5.png}
+		\subcaption{RMSE}
+		\label{fig:tracking_rmse2}
+	\end{minipage}
+	\caption{SLAMを用いる手法の追跡精度}
+	\label{fig:slam_tracking_result}
+\end{figure}
