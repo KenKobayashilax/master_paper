@@ -2,320 +2,35 @@
 本章では，本論文の提案手法を詳述する．
 
 \subsection{手法の概要}\label{subsec:method_outline}
-本節では，本論文の提案手法および比較手法の概要を説明する．
-本論文では動的物体の三次元復元手法として，提案手法である動的物体上の特徴点にSLAMを適用する手法と，比較手法として単眼深度推定を用いる手法の二手法を用いる（図\ref{fig:flow_chart}）．
-
-\subsubsection{動的物体に対してSLAMを用いる手法}\label{subsubsec:with_camera_motion}
-本項では，動的物体上の特徴点に対してSLAMを適用し，動的物体の三次元復元および追跡を行う手法の概要を説明する．
-なお，この手法では動的物体が剛体であることを仮定している．
-まずは，入力動画の各フレームに対してセグメンテーションを行い，動的物体のマスクを作成する．
-次に，各フレームから特徴点を検出したのち，各フレームに対応するマスクを用いて動的物体上の特徴点（以下，動的特徴点）のみを抽出する．
-こうして抽出された特徴点を用いてSLAMを行うことにより，動的物体の三次元形状と各時刻の動的物体に対する相対的なカメラの自己位置が得られる．
-得られた動的物体の三次元形状をカメラが静止している座標系に直すことにより，各時刻の動的物体の位置推定を行うことができる．
-
-\subsubsection{深度推定を用いる手法}\label{subsubsec:without_camera_motion}
-本項では，比較手法として用いた単眼深度推定による三次元復元手法の概要を説明する．
-まず，各時刻の画像を入力として，それぞれに対して単眼深度推定を行うことで各画素の相対深度$d_{rel}$を取得する．
-次に，いくつかの点の絶対深度を既知として正解データから与えることにより，相対深度$d_{rel}$を絶対深度$d_{abs}$に変換する．
-ここで得られた絶対深度$d_{abs}$をもとに任意の画像上の点を三次元空間上にプロット（以下，三次元再構成）することができる．
-その際，画像のうちセグメンテーションによって得られた動的物体の領域内にある画素に限って三次元再構成することで，画像上の動的物体に領域にある点のみを三次元復元することができる．
-
-また，動的物体の追跡するには，事前に各フレームとその次の時刻のフレームを入力として，オプティカルフロー推定により得られた各画素のフローを用いる．
-得られたフローを用いて画像上で逐次的に追跡した点を，深度推定の結果をもとに三次元再構成することで，動的物体の三次元空間での追跡が可能となる．
-
-\begin{figure}[htbp]
-	\centering
-	\rotatebox{90}{% 90度回転させる
-		\begin{minipage}{\textheight}
-			\centering
-			\includegraphics[width=\linewidth]{images/overview.png}
-			\caption[全体のフレームワーク]{全体のフレームワーク}
-			\label{fig:flow_chart}
-	\end{minipage}}
-\end{figure}
-
-\subsection{前処理}\label{subsec:preparation}
-ここでは提案手法，および比較手法を行う上で必要となる二つの処理，すなわち，ビデオセグメンテーションおよびオプティカルフロー推定について説明する．
-\subsubsection{ビデオ・セグメンテーション}\label{subsubsec:prepare_segmentation}
-本研究においてビデオ・セグメンテーションは，各フレームでの動的物体の画素領域を取得する役割を果たす．
-本研究のビデオ・セグメンテーションに必要な要件は以下の三つである．
-\begin{enumerate}
-    \item 注目したい動的物体を指定できること
-    \label{point_object}
-    \item できるだけ人の手をかけないこと
-    \label{no_human_hand}
-    \item 長尺の動画に対してもセグメンテーションが続けられること
-\end{enumerate}
-
-\ref{point_object}，\ref{no_human_hand}の条件を満たすため，本研究では最初のマスク画像のみ人が与え，その後は自動でセグメンテーションを行うSVOS（参照\ref{SVOS}）を採用する．
-
-本研究では，複数あるSVOSアーキテクチャの中でも，長尺な動画に対しても高いセグメンテーション精度を保つことのできる，Chengら\cite{cheng2022xmem}によるXMemを採用する(図\ref{figure:XMem})
-．モデルはデフォルトの学習済みのモデルを用いる．
-提案手法では，注目したい動的物体の画素領域が白，それ以外の画素領域が黒となる二値化された初期マスク画像と,
-連続なRGB画像からなる動画を入力として与える．
-出力として，各フレームにおける動的物体部分が白，それ以外の部分が黒となっているマスク画像が，以降のフレームについて得られる．
-これにより各フレームでの動的物体の領域が定まり，以降の動的物体上の特徴点を抽出する過程で用いられる．
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=1.0\linewidth]{images/XMem.png}
-	\caption[XMemによるセグメンテーションの例]{XMemによるセグメンテーションの例（\cite{cheng2022xmem}より）．最初のフレームのみマスクを与えている．}
-	\label{figure:XMem}
-\end{figure}
-
-\subsubsection{オプティカルフロー}\label{subsubsec:prepare_opticalflow}
-本研究でオプティカルフローは，連続した２フレーム間における画像上の画素の移動を推定し，画像上で動的物体の注目したい部分を追跡していく役割を果たす．
-なお，推定された結果は比較手法で用いられる．
-任意の画素の移動を追跡するには，すべての画素のフローの情報がわかっていることが望ましいため，密なオプティカルフロー推定が適している．
-本研究ではTeedら\cite{teed2020raft}によるRecurrent All-Pairs Field Transforms（以下，RAFT）という高精度かつロバスト性の高い密なオプティカルフロー推定アーキテクチャを用いる． 
-モデルは，FlyingThings3D\cite{MIFDB16}というデータセットを用いて学習した学習済みモデルを用いる．
-FlyingThings3Dは日常生活の中にある物体がランダムな軌跡を飛んでいるステレオ画像のデータセットである（図\ref{figure:flying_things}）．
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.8\linewidth]{images/flying_things.jpg}
-	\caption[FlyingThings3Dデータセットの例]{FlyingThings3Dデータセットの例（\cite{MIFDB16}より）}
-	\label{figure:flying_things}
-\end{figure}
-
-密なオプティカルフローにより得られるのは各画素のフローであり，画像上の任意の座標（$u$軸，$v$軸の値が整数値でない点も含む）のフローを得るためには補間を行う必要がある．
-本研究では双線形補間を用いてフローの補間を行う（図\ref{fig:interpolation}，\ref{fig:flow_interpolation}）．
-具体的には画像上の画素$\mathbf{p}_{m,n}={(m,n)}^\mathrm{T}$ ($m,
-n \in\mathbb{N}$）のフローを$\mathbf{f}(\mathbf{p}_{m,n})=(f_{(m)},f_{(n)})^\mathrm{T}=\mathbf{f}(m,n)$と表現する時，画像上の任意の点$\mathbf{p}_{u,v}={(u,v)}^\mathrm{T}$のフロー$\mathbf{f}(u,v)$は$u=m+s$, $v=n+t$ $(s,t\in(0,1))$なる$m$,$n$,$s$,$t$を用いて
-%\mathbf{f}(\mathbf{p}_{u,v})=(f_{(v)},f_{(v)})^\mathrm{T}
-
+本節では，本論文のベースラインとなる手法と提案手法の概要を説明する．
+本論文ではDeblurring3DGS\cite{Deblurring3dgs}をベースラインとして用いる．
+提案手法として，ベースラインのピンボケの表現に，カメラの原理に基づくピンボケ表現の導入をする手法と，カメラ標定要素修正を伴う最適化を追加した手法の二手法を用いる．
+\subsubsection*{ベースライン}
+本論文でベースラインとなるDeblurring3DGS\cite{Deblurring3dgs}は，ピンボケをガウシアンの変形として扱い，その変形分をMLPを用いて推定することでピンボケを表現する3DGS手法である．
+MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニオン$r_j$, スケール$s_j$と, レンダリングするカメラの位置$v$を入力として，ガウシアンのクォータニオンの変化分$\delta_{r_j}$とスケールの変化分$\delta_{s_j}$を出力する．
+なお，クォータニオン$r$とスケール$s$は，ガウシアンの共分散行列$\Sigma$を用いて以下のように表せる．
 \begin{equation}
-	\label{eq:biliner}
-	\begin{array}{l}
-		\mathbf{f}(u,v)=(1-s)(1-t) \mathbf{f}\left(m, n\right) 
-		+(1-s) t \mathbf{f}\left(m+1, n\right)
-		+s(1-t) \mathbf{f}\left(m, n+1\right) 
-		+s t \mathbf{f}\left(m+1, n+1\right)
-	\end{array}
+  \Sigma(r, s) = R(r)S(s){S(s)}^T{R(r)}^T
 \end{equation}
-と補間される．これにより任意の画像座標のフローを推定することが可能になる．
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.7\linewidth]{images/interpolation.jpg}
-	\caption[双線形補間のイメージ]{双線形補間のイメージ．\\簡単のため$f(u,v)$はスカラー値としている．\\青枠に囲まれた各画素が値を持っている．}
-	\label{fig:interpolation}
-\end{figure}
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.5\linewidth]{images/flow_interpolation.png}
-	\caption[オプティカルフローの補間のイメージ]{オプティカルフローの補間のイメージ．\\青枠に囲まれた各画素がフローを持っている}
-	\label{fig:flow_interpolation}
-\end{figure}
-
-
-\begin{comment}
-\begin{figure}[h]
-\centering
- \begin{minipage}[t]{0.6\hsize}
-   \centering
-   
-   \includegraphics[width=0.9\linewidth]{images/interpolation.jpg}
-   \subcaption{双線形補間のイメージ．簡単のため$f(u,v)$はスカラー値としている．}
-   \label{fig:interpolation_left}
-  
- \end{minipage}
- \begin{minipage}[t]{0.35\hsize}
-   \centering
-   
-   \includegraphics[width=0.9\linewidth]{images/flow_interpolation.png}
-   \subcaption{オプティカルフローの補間のイメージ}
-   \label{fig:interpolation_right}
- \end{minipage}
- \caption{オプティカルフローの双線形補間のイメージ}
- \label{fig:flow_interpolation}
-\end{figure}
-\end{comment}
-
-\subsection{単眼深度推定を用いた三次元復元}\label{subsubsec:prepare_depth_estimation}
-本項では，比較手法として用いた，単眼深度推定を用いた動的物体の三次元復元について説明する．
-この手法は，画像ごとの単眼深度推定によって得た各画素の深度をもとに，三次元再構成するという手法である．
-さらに，オプティカルフローを用いて画像上で追跡した点を用いることで，動的物体の三次元空間上での追跡が可能となる．
-本研究では単眼深度推定のアーキテクチャとして，Bhatら\cite{Bhat_2021_CVPR}によるAdaBinsというアーキテクチャを使用する．
-モデルは，NYU\cite{silberman2012indoor}という室内環境を撮影したデータセットを用いて学習した学習済みモデルを用いた．
-\subsubsection*{三次元位置の復元}
-単眼深度推定を用いた三次元位置の復元の手順は以下のとおりである．
-まず，動画の各フレームを入力とし個別に単眼深度推定を行うことで，フレームの各画素の相対深度を得る．
-相対深度を絶対深度に変換するためには，各フレームごとにスケールの調整を行う必要がある．
-本研究ではranftら\cite{ranftl2020towards}の，最小二乗法による線形単回帰モデルを用いた深度スケールの調整方法を用いる．
-具体的には，以下のように行う（図\ref{fig:depth_regression}）．
-
-画像座標$\mathbf{p}=(u,v)$での相対深度が$d_{rel,\mathbf{p}}$であるとき，複数点の相対深度$d_{rel,\mathbf{p}_i}$と絶対深度$d_{abs,\mathbf{p}_i}$の組を既知として与える．
-これらの既知の組をもとに仮説関数を
-\begin{equation}\label{eq:regression}
-	\hat{d}_{abs,\mathbf{p}}=\omega_1*d_{rel,\mathbf{p}}+\omega_0
+ここで，$R(r)$はクォータニオン$r$に対応する回転行列，$S(r)$はスケール$s$に対応するスケーリング行列である\cite{rotation_quaternion}．
+得られたクォータニオンの変化分$\delta_{r_j}$とスケールの変化分$\delta_{s_j}$を用いて，以下のようにガウシアン$j$のクォータニオン$r_j$とスケール$s_j$をそれぞれ変化させる．
+\begin{equation}
+	\hat{r}_j=r_j \cdot \min \left(1.0, \lambda_s \delta r_j+\left(1-\lambda_s\right)\right), 
+	\hat{s}_j=s_j \cdot \min \left(1.0, \lambda_s \delta s_j+\left(1-\lambda_s\right)\right)
 \end{equation}
-として最小二乗法による回帰を行うことで，パラメタ$\omega_1$,$\omega_0$が求まる．
-なお，$\omega_1$,$\omega_0$はそれぞれスケールパラメタ，シフトパラメタと呼ばれ，各フレームに固有の値である．
-これによって，各画像における絶対深度$d_{abs}$を推定することができる．
+ここで，$\lambda_s$は最適化の安定性のために導入される係数で，MLPの出力を$\lambda_s$拡大し，$1-\lambda_s$ずらす．
+こうして得られたガウシアン$G(x_j, \hat{r}_j, \hat{s}_j)$は，カメラ位置$v$で撮影された画像でのピンボケを表現するよう変形されている．
+ガウシアンの最適化では，変形したガウシアン$G(x_j, \hat{r}_j, \hat{s}_j)$をレンダリングした画像と入力であるピンボケ画像の差分を損失とする．
+損失を最小化するように，ガウシアンのパラメタ$x_j$, $r_j$, $s_j$, $\alpha_j$, $c_j$に加えて，MLPのパラメタ$\theta$を更新する．
+なお，$\alpha_j$は不透明度，$c_j$は色を表す球面調和関数である．
+更新を繰り返すことで，ボケていない鮮明なガウシアン$G(x_j, r_j, s_j, \alpha_j, c_j)$と，ピンボケを表現するMLP$\mathcal{F}_\theta$を得る．
 
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.5\linewidth]{images/depth_regression.png}
-	\caption{相対深度から絶対深度へのスケール変換}
-	\label{fig:depth_regression}
-\end{figure}
-
-得られた絶対深度は各画素が持っている値である．
-そのため，オプティカルフローの補間（参照\ref{subsubsec:prepare_opticalflow}）と同様に絶対深度について双線形補間を行うことで，任意の画像座標での絶対深度を得る．
-
-最後に，画像座標と推定された絶対深度を用いて，画像上の点の三次元再構成を行う．
-これには式\ref{eq:projection}で定義した三次元空間から画像上への投影とは逆の操作を行う．
-フレーム$t=k$の画像座標$\mathbf{p}_{k,i}={(u_{k,i}, v_{k,i})}^\mathrm{T}$，絶対深度${d}_{abs,\mathbf{p}_{k,i}}$である点$\mathbf{p}_{k,i}$に対応する三次元座標$\mathbf{m}_{k,i}=(x_{k,i},y_{k,i},z_{k,i})$は，カメラの焦点と画像座標$\mathbf{p}_{k,i}$を結んだ直線上かつ，$z_{k,i}={d}_{abs,\mathbf{p}_{k,i}}$となるような点であり（図\ref{fig:project_inv}），
-\begin{equation}\label{eq:projection_inv}
-		\\\mathbf{m}_{k,i}
-		=
-		\boldsymbol{\pi}_{\text{Caminv},k}
-		\left(\mathbf{p}_{k,i},{d}_{abs,\mathbf{p}_{k,i}}
-		\right)
-\end{equation}
-と表現できる．ただし，カメラの三次元再構成を行う関数を次の$\boldsymbol{\pi}_{\text{Caminv},k}$とした．
-$d$は深度，その他の記号は式\ref{eq:projection}に準ずる．
-\begin{equation}\label{eq:inv_projection}
-	\boldsymbol{\pi}_{\text{Caminv}}
-	\left(
-	\left(
-	\begin{array}{c}
-		u\\v
-	\end{array}
-	\right)
-	,d
-	\right)
-	=
-	\left(
-	\begin{array}{c}
-		\frac{d}{f_x}(u-c_{x})  \\\\  \frac{d}{f_y}(v-c_{y})  \\\\ d 
-	\end{array}
-	\right)
-\end{equation}
-これにより，各フレームの任意の画像座標に対応する三次元空間上の点の座標を推定することができる．
-とくに，画像のうちセグメンテーションによって得られた動的物体の領域内にある画素に限って三次元再構成をすることで，動的物体の密な三次元点群を推定することができる．
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.5\linewidth]{images/project_inv.png}
-	\caption{三次元再構成のイメージ}
-	\label{fig:project_inv}
-\end{figure}
-
-\subsubsection*{動的物体の追跡}
-
-前処理で得たオプティカルフローを用いて画像上の変位を逐次的に推定することで，任意のフレーム，任意の画像座標の画像上での追跡を行う．
-まずは1フレーム後の画像座標推定である．
-フレーム$t=l$上の画像座標$\mathbf{p}_{l,i}$に関して，フレーム$t=l+1$での対応する画像座標$\mathbf{p}_{l+1,i}$は，$\mathbf{p}_{l,i}$でのフローの推定値$\hat{\mathbf{f}}(\mathbf{p}_{l,i})=(\hat{f}_{(u_{l,i})},\hat{f}_{(v_{l,i})})^\mathrm{T}$を用いて，
-\begin{equation}\label{eq:flow_estimation}
-	\hat{\mathbf{p}}_{l+1,i} = \mathbf{p}_{l,i} + \hat{\mathbf{f}}(\mathbf{p}_{l,i})
-\end{equation}
-と推定できる．
-推定された画像座標$\hat{\mathbf{p}}_{l+1,i}$のフロー$\hat{\mathbf{f}}(\hat{\mathbf{p}}_{l,i})$用いて，次のフレーム$t=l+2$についても同様に画像座標を推定することができる．
-推定された画像座標に対する次のフレームの画像座標を逐次的に推定していくことで，追跡の起点となるフレーム$t=k_0$上の画像座標$\mathbf{p}_{k_0,i}$に対応するフレーム$t=k \quad(k\geqq k_0+1)$での画像座標は，
-\begin{equation}\label{eq:tracking}
-	\hat{\mathbf{p}}_{k, i}=\sum_{\ell=k_0}^{k-1} \hat{\mathbf{f}}\left(\hat{\mathbf{p}}_{l, i}\right)+\mathbf{p}_{k_0, i} \quad\left(\hat{\mathbf{p}}_{k_0, i}=\mathbf{p}_{
-		k_0, i}\right)
-\end{equation}
-と推定できる．
-これにより任意のフレーム，任意の画像座標に対して画像上での追跡を行うことができる．
-
-推定された画像座標$\hat{\mathbf{p}}_{k, i}$と，単眼深度推定によって得られる$\hat{\mathbf{p}}_{k, i}$での絶対深度$\hat{d}_{\mathbf{\hat{p}}_k,i}$を用いて，この点に対応する三次元座標$\hat{\mathbf{m}}_{k, i}$を復元する．
-こうして，任意のフレーム$t=k_0$上の任意の画像座標$\mathbf{p}_{k_0,i}$について，三次元空間上での追跡を行うことができる．
-
-
-%\subsection{(背景に対するSLAM)}\label{subsec:SLAM_background}
-\subsection{動的物体に対するSLAM}\label{subsec:SLAM_foreground}
-本節では，セグメンテーション（\ref{subsubsec:prepare_segmentation}）で得た動的物体のマスクを用いた,動的物体に対するSLAMの適用について説明する．
-処理のプロセスは次のとおりである．
-まず，動画の各フレームのRGB画像から特徴点を検出し，セグメンテーションで得たマスクを用いて動的物体の領域上にある特徴点（以下，動的特徴点）のみを抽出する．
-これにより，SLAMを行う際に静止している特徴点の影響を排除することができ，推定精度の向上が図られる．
-抽出された動的特徴点のフレーム間での対応付けをしたのち，SfMを適用する．
-周辺環境地図としてマスクで指定した動的物体の三次元点群を，自己位置として動的物体に対する各時刻のカメラの相対的な自己位置（以下，相対自己位置）を推定することができる（図\ref{fig:dynamic_slam}）．
-最後に得られた座標空間全体を適当な数値で定数倍することで，撮影された絶対座標系とスケールを合わせる．
-このとき，奥行き方向に閾値を設け，出力として得られた動的物体の三次元点群のうち奥行き方向に大きく外れる点は外れ値として除外する．
-
-\begin{comment}
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.8\linewidth]{images/slam.png}
-	\caption{動的物体に対するSLAMの出力と座標変換．回転する立方体を撮影した場合．}
-	\label{fig:dynamic_slam}
-\end{figure}
-\end{comment}
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.8\linewidth]{images/slam_image.png}
-	\caption{動的物体に対するSLAMの出力のイメージ}
-	\label{fig:dynamic_slam}
-\end{figure}
-
-\subsection{SLAMを用いた動的物体の三次元復元}\label{subsec:3Dreconstruction}
-動的物体に対してSLAMを適用することで得られる時刻$t=k$の相対自己位置は，動的物体が静止している座標系 $slam$で表現されたカメラの自己位置 $(\mathbf{t}^{(\text{slam})}_k,\mathbf{R}^{(\text{slam})}_k)$である．
-このとき，座標系$slam$上の点$\mathbf{m}^{(slam)}={(x^{(slam)} , y^{(slam)} , z^{(slam)} )}^\mathrm{T}$は相対自己位置$(\mathbf{t}^{(\text{slam})}_k,\mathbf{R}^{(\text{slam})}_k)$を用いて座標系$t=k$上で，
-
-\begin{equation}\label{eq:trans2}
-	\mathbf{m}^{(k)}
-	=
-	\left(\begin{array}{c}
-		x^{(k)} \\ y^{(k)} \\ z^{(k)}
-	\end{array}
-	\right)
-	=
-	\mathbf{R}^{(k)}_{\text{slam}}\mathbf{m}^{({\text{slam}})}
-	+\mathbf{t}^{(k)}_{\text{slam}} 
-	=
-	(\mathbf{R}^{(\text{slam})}_{k})^{-1}(\mathbf{m}^{({\text{slam}})}-\mathbf{t}^{(\text{slam})}_{k})
-\end{equation}
-
-に変換される．
-なお，$\mathbf{R}^{(k)}_{\text{slam}}=(\mathbf{R}^{(\text{slam})}_{k})^{-1}$,$\mathbf{t}^{(k)}_{\text{slam}} =-(\mathbf{R}^{(\text{slam})}_{k})^{-1}\mathbf{t}^{(\text{slam})}_{k}$である．
-
-座標系$t=k$上での座標とは，時刻$t=k$でのカメラから見た座標のことである．
-つまり，SLAMにより 得られる動的物体の点群を,カメラの相対自己位置により定まる空間座標系に変換することで，カメラからみた動的物体の運動を復元できる（図\ref{fig:henkan}）．
-動画撮影時にカメラが移動しない場合は，任意の時刻の座標系は絶対座標系と等しいため，座標系 $t=k$に変換された座標はそのまま絶対座標系での座標となる．
-\begin{comment}
-動画においてカメラが移動していた場合は，座標系$t=k$上に変換された座標を絶対座標系で表現することで，絶対座標系における動的物体の点群が復元できる．
-\end{comment}
-
-\begin{figure}[h]
-	\centering
-	\includegraphics[width=0.8\linewidth]{images/henkan_image.png}
-	\caption{座標変換による動的物体の運動の復元}
-	\label{fig:henkan}
-\end{figure}
-
-\subsubsection{動的物体の位置推定}\label{subsubsec:3Dposition_inference}
-ここまでで得られるのは動的物体の特徴点からなる疎な点群であり，任意の画像座標に対応する三次元座標を得るには点群を補間する必要がある．
-本研究ではまず，SLAMにより生成された動的物体の三次元点群を各時刻において画像上に投影する．
-画像上に投影された点群はそれぞれ画像座標と深度を持つ．
-任意の画像座標に対して，投影された点群を用いた三角形分割補間を行うことで，任意の画像座標の深度を求める（図\ref{fig:depth_interpolation_slam}）．
-得られた深度と画像座標を用いて三次元再構成を行う（式\ref{eq:projection_inv},\ref{eq:inv_projection}）ことで，任意の画像座標に対応する三次元位置座標を得ることができる．
-
-\begin{figure}[ht]
-	\centering
-	\includegraphics[width=0.8\linewidth]{images/depth_interpolation_slam.png}
-	\caption{投影された点を用いた深度の三角形分割補間}
-	\label{fig:depth_interpolation_slam}
-\end{figure}
-
-\subsubsection{動的物体の追跡}\label{subsubsec:displacement_inference}
-
-動的物体に対してSLAMを用いる手法での三次元空間上の追跡は，SLAMで得られた各時刻の相対自己位置を用いることで行える．
-時刻$t=l$で推定された座標系$t=l$上の点$\mathbf{m}^{(l)}={(x^{(l)} , y^{(l)}, z^{(l)})}^\mathrm{T}$があるとき，この点の時刻$t=k$での推定点$\mathbf{m}^{(k)}={(x^{(k)} , y^{(k)}, z^{(k)})}^\mathrm{T}$は，座標系$t=k$におけるフレーム$t=l$の相対自己位置$(\mathbf{t}^{(\text{k})}_l,\mathbf{R}^{(\text{k})}_l)$を用いて
-
-\begin{equation}\label{eq:trans3}
-	\mathbf{m}^{(k)}
-	=
-	\left(\begin{array}{c}
-		x^{(k)} \\ y^{(k)} \\ z^{(k)}
-	\end{array}
-	\right)
-	=
-	\mathbf{R}^{(k)}_{l}\mathbf{m}^{(l)}
-	+\mathbf{t}^{(k)}_{l} 
-\end{equation}
-と推定できる．
-これにより，ある時刻に推定した点の，任意の時刻における三次元座標を推定することができ，動的物体上の点の追跡が可能になる．
+\subsection{幾何学的条件を考慮したピンボケ表現の導入}\label{subsec:introduction_of_blur_expression}
+\subsubsection{ピンボケの原理}\label{subsubsec:principle_of_blur}
+\subsubsection{深度を考慮した正則化項の追加}\label{subsubsec:add_regularization_term}
+\subsection{カメラ標定要素修正を伴う三次元モデルの最適化}\label{subsec:pose_correction}
+\subsubsection{空間変換を用いたガウシアンとカメラ標定要素の交互最適化}\label{subsubsec:sequential_optimization}
+\subsubsection{重み付けによる修正量の調整}
+\subsubsection*{閾値による修正の判別}
+\subsubsection*{画像誤差を用いた学習率の調整}
+\cite{3d_warping}

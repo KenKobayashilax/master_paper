@@ -1,4 +1,4 @@
-\documentclass{jsarticle} % pLaTeX を使う場合
+\documentclass[draft]{jsarticle} % pLaTeX を使う場合
 %\documentclass[uplatex]{jsarticle} % upLaTeX を使う場合。しおりが文字化けする
 \bibliographystyle{junsrt}%番号順
 \usepackage{atbegshi}
@@ -227,17 +227,17 @@ pdfkeywords={},%
 \lhead{\leftmark}%ヘッダ左に節見出し
 \pagenumbering{arabic}%ページ番号をアラビア数字にする
 
-%----------第１章---------
-\input {chapter1}
-\clearpage
-
-%----------第２章----------
-\input {chapter2}
-\clearpage
-
-% %----------第３章----------
-% \input {chapter3}
+% %----------第１章---------
+% \input {chapter1}
 % \clearpage
+
+% %----------第２章----------
+% \input {chapter2}
+% \clearpage
+
+%----------第３章----------
+\input {chapter3}
+\clearpage
 
 % %----------第4章----------
 % \input {chapter4}
