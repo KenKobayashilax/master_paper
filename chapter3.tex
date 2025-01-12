@@ -3,17 +3,21 @@
 
 \subsection{手法の概要}\label{subsec:method_outline}
 本節では，本論文のベースラインとなる手法と提案手法の概要を説明する．
-本論文ではDeblurring3DGS\cite{Deblurring3dgs}をベースラインとして用いる．
+本論文ではdeblurring3DGS\cite{Deblurring3dgs}をベースラインとして用いる．
 提案手法として，ベースラインのピンボケの表現に，カメラの原理に基づくピンボケ表現の導入をする手法と，カメラ標定要素修正を伴う最適化を追加した手法の二手法を用いる．
 \subsubsection*{ベースライン}
 本論文でベースラインとなるDeblurring3DGS\cite{Deblurring3dgs}は，ピンボケをガウシアンの変形として扱い，その変形分をMLPを用いて推定することでピンボケを表現する3DGS手法である．
-MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニオン$r_j$, スケール$s_j$と, レンダリングするカメラの位置$v$を入力として，ガウシアンのクォータニオンの変化分$\delta_{r_j}$とスケールの変化分$\delta_{s_j}$を出力する．
+MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニオン$r_j$, スケール$s_j$と, レンダリングするカメラの位置$v$を入力として，ガウシアンのクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$を出力する．
+\begin{equation}
+	(\delta_{r_j}, \delta_{s_j}) = \mathcal{F}_\theta(\gamma(x_j), r_j, s_j, \gamma(v))
+\end{equation}
+ここで，$\gamma$はポジショナルエンコーディングを指す．
 なお，クォータニオン$r$とスケール$s$は，ガウシアンの共分散行列$\Sigma$を用いて以下のように表せる．
 \begin{equation}
   \Sigma(r, s) = R(r)S(s){S(s)}^T{R(r)}^T
 \end{equation}
 ここで，$R(r)$はクォータニオン$r$に対応する回転行列，$S(r)$はスケール$s$に対応するスケーリング行列である\cite{rotation_quaternion}．
-得られたクォータニオンの変化分$\delta_{r_j}$とスケールの変化分$\delta_{s_j}$を用いて，以下のようにガウシアン$j$のクォータニオン$r_j$とスケール$s_j$をそれぞれ変化させる．
+得られたクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$を用いて，以下のようにガウシアン$j$のクォータニオン$r_j$とスケール$s_j$をそれぞれ変化させる．
 \begin{equation}
 	\hat{r}_j=r_j \cdot \min \left(1.0, \lambda_s \delta r_j+\left(1-\lambda_s\right)\right), 
 	\hat{s}_j=s_j \cdot \min \left(1.0, \lambda_s \delta s_j+\left(1-\lambda_s\right)\right)
@@ -26,8 +30,52 @@ MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニ�
 更新を繰り返すことで，ボケていない鮮明なガウシアン$G(x_j, r_j, s_j, \alpha_j, c_j)$と，ピンボケを表現するMLP$\mathcal{F}_\theta$を得る．
 
 \subsection{幾何学的条件を考慮したピンボケ表現の導入}\label{subsec:introduction_of_blur_expression}
+本節では，幾何学的条件を考慮したピンボケ表現の導入について説明する．
 \subsubsection{ピンボケの原理}\label{subsubsec:principle_of_blur}
+ピンボケは光学の分野で研究されてきた\cite{optics}．
+ピンボケとは，ピントの合わない距離に被写体があることが原因で，同一の点から出た光がカメラセンサ上の一点で光が交わらない現象である（図入れる！！！）．
+被写体のピンボケの半径（以下，ボケ半径）$c$は，レンズ歪みがないという仮定の下で，カメラから被写体までの光軸方向の距離（以下，深度）を$d$，カメラのピントがあっている深度（以下，focal distance）を$d_f$，カメラの焦点距離を$f$，F値（絞り）を$A$として以下のように定式化できる．
+\begin{equation}
+	c = \frac{f}{A} \cdot \frac{f\left|d-d_f\right|}{d(d_f-f)}
+	\label{eq:coc}
+\end{equation}
+なお，F値はレンズの有効口径半径を$R$として$f/R$で表される．
+ボケ半径は，焦点距離が一定という条件の下で，F値に反比例する．
+また，ボケ半径は深度の関数として，focal dinstanceと深度が一致するときに0となり，focal distanceより手前にあるときは無限大に発散，奥にあるときは$f^2/{Ad_f}$に収束する（図入れる！！！）．
+カメラの焦点距離に対してfocal distanceが十分遠い$d_f>>f$の条件のもとでは，$k=f^2/A$なる定数kを用いて式\ref{eq:coc}は以下のように変形できる．
+\begin{equation}
+	c = k \frac{\left|d-d_f\right|}{dd_f}
+	\label{eq:coc_2}
+\end{equation}
 \subsubsection{深度を考慮した正則化項の追加}\label{subsubsec:add_regularization_term}
+本節では，前節で説明したカメラの定理に基づきピンボケ表現を導入するための，正則化項の追加について説明する．
+ベースラインでは，MLPはカメラの位置とガウシアンの位置を入力に組み込むことで，暗黙的に深度が入力されている．
+しかし，式\ref{eq:coc_2}で表される深度とボケ半径の関係は考慮されていないまま，ガウシアンのクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$が推定されている．\par
+
+そこで，本研究では，式\ref{eq:coc_2}で表されるボケ半径にガウシアンの半径の増分が従うよう，正則化を行う（図入れる！！！！）．
+まず，focal distance $d_f$とF値由来の比例定数$k$を学習可能なパラメタとする．
+なお，断りがない限りfocal distanceは画像ごとに固有，比例定数$k$はシーン全体で共通のパラメタとしている．
+そして，MLPの出力であるガウシアンのスケールの変化割合$\delta_{s_j}$のノルムから$\sqrt{3}$を引き，疑似的なガウシアンの半径の増分$c_j$を求める．
+次に，式\ref{eq:coc_2}に基づき，以下のように推定ボケ半径$\hat{c}_j$を計算する．
+\begin{equation}
+	\hat{c}_j = k \frac{\left|d_j-d_f\right|}{d_jd_f}
+	\label{eq:loss_reg}
+\end{equation}
+ここで，$d_j$はガウシアン$j$の平均$x_j$を三次元位置として算出した深度を指す．
+$k$および$d_f$は上で述べた学習可能パラメタである．
+疑似的なガウシアンの半径の増分$c_j$と推定ボケ半径$\hat{c}_j$の誤差に基づき，正則化の損失$L_{reg}$を以下のように計算する．
+\begin{equation}
+	L_{reg}=\sum_{j=1}^N\left(\frac{c_j}{k}-\frac{\hat{c}_j}{k}\right)^2
+	\label{eq:loss_reg}
+\end{equation}
+ここで，$N$は画像のレンダリング時に使用されたガウシアンの総数を指す．
+誤差最小化に伴い$k=0$という自明な解に陥ることを防ぐため，$c_j$および$\hat{c}_j$を$k$で除し，計算の安定化を図っている．
+得られた正則化の損失$L_{reg}$を，正則化係数$\lambda_{reg}$で重みづけし，以下のように全体の損失を計算する．
+\begin{equation}
+	L_{total} = (1-\lambda_{reg})L_image + \lambda_{reg}(L_{reg})
+\end{equation}
+この損失の最小化を目的とし，ガウシアン，MLP，focal distance $d_f$， 比例定数$k$のパラメタを最適化する．
+
 \subsection{カメラ標定要素修正を伴う三次元モデルの最適化}\label{subsec:pose_correction}
 \subsubsection{空間変換を用いたガウシアンとカメラ標定要素の交互最適化}\label{subsubsec:sequential_optimization}
 \subsubsection{重み付けによる修正量の調整}
