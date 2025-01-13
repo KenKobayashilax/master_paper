@@ -102,6 +102,7 @@ radiance fieldを異方性を持った三次元のガウシアンの集まりと
 画像間の損失$L$はL1損失とD-SSIM損失\cite{d-ssim}を組み合わせ，以下のようにあらわされる．
 \begin{equation}
   L = (1 - \lambda)L_1 + {\lambda}L_{D-SSIM}
+  \label{eq:l_image}
 \end{equation}
 ここで，$\lambda$はD-SSIMの重みであり，\cite{3dgs}およびこれ以降に紹介される3DGS手法では$\lambda = 0.2$が使用されている．
 この損失を最小化するよう確率的勾配降下法によってガウシアンのパラメタが更新される．\par

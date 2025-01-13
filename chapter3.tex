@@ -4,7 +4,7 @@
 \subsection{手法の概要}\label{subsec:method_outline}
 本節では，本論文のベースラインとなる手法と提案手法の概要を説明する．
 本論文ではdeblurring3DGS\cite{Deblurring3dgs}をベースラインとして用いる．
-提案手法として，ベースラインのピンボケの表現に，カメラの原理に基づくピンボケ表現の導入をする手法と，カメラ標定要素修正を伴う最適化を追加した手法の二手法を用いる．
+提案手法として，カメラの原理から得られる幾何学的条件に基いたピンボケ表現を導入する手法と，カメラ標定要素修正を伴う最適化を追加した手法の二手法を用いる．
 \subsubsection*{ベースライン}
 本論文でベースラインとなるDeblurring3DGS\cite{Deblurring3dgs}は，ピンボケをガウシアンの変形として扱い，その変形分をMLPを用いて推定することでピンボケを表現する3DGS手法である．
 MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニオン$r_j$, スケール$s_j$と, レンダリングするカメラの位置$v$を入力として，ガウシアンのクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$を出力する．
@@ -27,43 +27,61 @@ MLP$\mathcal{F}_\theta$は各ガウシアン$j$の位置$x_j$, クォータニ�
 ガウシアンの最適化では，変形したガウシアン$G(x_j, \hat{r}_j, \hat{s}_j)$をレンダリングした画像と入力であるピンボケ画像の差分を損失とする．
 損失を最小化するように，ガウシアンのパラメタ$x_j$, $r_j$, $s_j$, $\alpha_j$, $c_j$に加えて，MLPのパラメタ$\theta$を更新する．
 なお，$\alpha_j$は不透明度，$c_j$は色を表す球面調和関数である．
-更新を繰り返すことで，ボケていない鮮明なガウシアン$G(x_j, r_j, s_j, \alpha_j, c_j)$と，ピンボケを表現するMLP$\mathcal{F}_\theta$を得る．
+更新を繰り返すことで，ボケていない鮮明なガウシアン$G(x_j, r_j, s_j, \alpha_j, c_j)$と，ピンボケを表現するMLP$\mathcal{F}_\theta$を得る．\par
+\subsubsection*{幾何学的条件を考慮したピンボケ表現の導入}
+本研究では各ガウシアンの深度応じてピンボケの幅を推定し，これにMLPの出力であるガウシアンの拡大割合が従うよう正則化を加える．
+まずは，カメラのF値とピントが合っている深度を学習可能なパラメタとし，各ガウシアンの深度に基づきピンボケの幅を推定する．
+こうして得られた推定ピンボケ幅と，MLPの出力から計算されるガウシアンの拡大分の差を誤差として，誤差の合計を損失に加える．
+これにより，損失の最小化に伴い，ガウシアンの拡大分が幾何学的条件に沿うよう，MLPのピンボケ表現が学習されていく．
 
 \subsection{幾何学的条件を考慮したピンボケ表現の導入}\label{subsec:introduction_of_blur_expression}
 本節では，幾何学的条件を考慮したピンボケ表現の導入について説明する．
+
 \subsubsection{ピンボケの原理}\label{subsubsec:principle_of_blur}
 ピンボケは光学の分野で研究されてきた\cite{optics}．
-ピンボケとは，ピントの合わない距離に被写体があることが原因で，同一の点から出た光がカメラセンサ上の一点で光が交わらない現象である（図入れる！！！）．
-被写体のピンボケの半径（以下，ボケ半径）$c$は，レンズ歪みがないという仮定の下で，カメラから被写体までの光軸方向の距離（以下，深度）を$d$，カメラのピントがあっている深度（以下，focal distance）を$d_f$，カメラの焦点距離を$f$，F値（絞り）を$A$として以下のように定式化できる．
+ピンボケとは，ピントの合わない距離に被写体があることが原因で，同一の点から出た光がカメラセンサ上の一点で光が交わらない現象である（図\ref{fig:principle}）．
+被写体のピンボケの直径（以下，ボケ幅）$c$は，レンズ歪みがないという仮定の下で，カメラから被写体までの光軸方向の距離（以下，深度）を$d$，カメラのピントがあっている深度（以下，focal distance）を$d_f$，カメラの焦点距離を$f$，F値（絞り）を$A$として以下のように定式化できる．
 \begin{equation}
 	c = \frac{f}{A} \cdot \frac{f\left|d-d_f\right|}{d(d_f-f)}
 	\label{eq:coc}
 \end{equation}
-なお，F値はレンズの有効口径半径を$R$として$f/R$で表される．
-ボケ半径は，焦点距離が一定という条件の下で，F値に反比例する．
-また，ボケ半径は深度の関数として，focal dinstanceと深度が一致するときに0となり，focal distanceより手前にあるときは無限大に発散，奥にあるときは$f^2/{Ad_f}$に収束する（図入れる！！！）．
+なお，F値はレンズの有効口径を$R$として$f/R$で表される．\par
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.7\linewidth]{images/chapter3/principle.png}
+	\caption[ピンボケの原理]{ピンボケの原理．ピントが合う深度$d_f$にある被写体（赤点）はセンサー上で一点で交わる．これに対し，$d_f$より奥にある被写体（青点）はセンサー上で一点に交わらず，直径$c$のピンボケが生じる．被写体が$d_f$より近くにある場合も同様である．}
+	\label{fig:principle}
+\end{figure}
+ボケ幅は，焦点距離が一定という条件の下で，F値に反比例する．
+また，ボケ幅は深度の関数として，focal dinstanceと深度が一致するときに0となり，focal distanceより手前にあるときは無限大に発散，奥にあるときは$f^2/{Ad_f}$に収束する（図\ref{fig:depth_and_boke}）．
 カメラの焦点距離に対してfocal distanceが十分遠い$d_f>>f$の条件のもとでは，$k=f^2/A$なる定数kを用いて式\ref{eq:coc}は以下のように変形できる．
 \begin{equation}
 	c = k \frac{\left|d-d_f\right|}{dd_f}
 	\label{eq:coc_2}
 \end{equation}
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.5\linewidth]{images/chapter3/depth_and_boke.png}
+	\caption[被写体の深度とピンボケの幅の関係]{被写体の深度とピンボケの幅の関係．焦点距離を$35 \text{mm}$とし，F値$A$を$(1.0, 2.0, 4.0)$，focal length $d_f$を$(1.0 \text{m}, 2.0 \text{m}, 4.0 \text{m})$で変化させている．}
+	\label{fig:depth_and_boke}
+\end{figure}
 \subsubsection{深度を考慮した正則化項の追加}\label{subsubsec:add_regularization_term}
-本節では，前節で説明したカメラの定理に基づきピンボケ表現を導入するための，正則化項の追加について説明する．
+本項では，前節で説明したカメラの定理に基づきピンボケ表現を導入するための，正則化項の追加について説明する．
 ベースラインでは，MLPはカメラの位置とガウシアンの位置を入力に組み込むことで，暗黙的に深度が入力されている．
-しかし，式\ref{eq:coc_2}で表される深度とボケ半径の関係は考慮されていないまま，ガウシアンのクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$が推定されている．\par
+しかし，式\ref{eq:coc_2}で表される深度とボケ幅の関係は考慮されていないまま，ガウシアンのクォータニオンの変化割合$\delta_{r_j}$とスケールの変化割合$\delta_{s_j}$が推定されている．\par
 
-そこで，本研究では，式\ref{eq:coc_2}で表されるボケ半径にガウシアンの半径の増分が従うよう，正則化を行う（図入れる！！！！）．
+そこで，本研究では，式\ref{eq:coc_2}で表されるボケ幅にガウシアンの大きさの増分が従うよう，正則化を行う．
 まず，focal distance $d_f$とF値由来の比例定数$k$を学習可能なパラメタとする．
 なお，断りがない限りfocal distanceは画像ごとに固有，比例定数$k$はシーン全体で共通のパラメタとしている．
-そして，MLPの出力であるガウシアンのスケールの変化割合$\delta_{s_j}$のノルムから$\sqrt{3}$を引き，疑似的なガウシアンの半径の増分$c_j$を求める．
-次に，式\ref{eq:coc_2}に基づき，以下のように推定ボケ半径$\hat{c}_j$を計算する．
+そして，MLPの出力であるガウシアンのスケールの変化割合$\delta_{s_j}$のノルムから$\sqrt{3}$を引き，疑似的なガウシアンの拡大幅$c_j$を求める．
+次に，式\ref{eq:coc_2}に基づき，以下のように深度に基づく推定ボケ幅$\hat{c}_j$を計算する．
 \begin{equation}
-	\hat{c}_j = k \frac{\left|d_j-d_f\right|}{d_jd_f}
+	\hat{c}_j = \hat{c}(d_j) = k \frac{\left|d_j-d_f\right|}{d_jd_f}
 	\label{eq:loss_reg}
 \end{equation}
 ここで，$d_j$はガウシアン$j$の平均$x_j$を三次元位置として算出した深度を指す．
 $k$および$d_f$は上で述べた学習可能パラメタである．
-疑似的なガウシアンの半径の増分$c_j$と推定ボケ半径$\hat{c}_j$の誤差に基づき，正則化の損失$L_{reg}$を以下のように計算する．
+疑似的なガウシアンのノルムの増分$c_j$と推定ボケ幅$\hat{c}_j$の誤差に基づき，正則化の損失$L_{reg}$を以下のように計算する（図\ref{fig:loss_reg}）．
 \begin{equation}
 	L_{reg}=\sum_{j=1}^N\left(\frac{c_j}{k}-\frac{\hat{c}_j}{k}\right)^2
 	\label{eq:loss_reg}
@@ -72,13 +90,22 @@ $k$および$d_f$は上で述べた学習可能パラメタである．
 誤差最小化に伴い$k=0$という自明な解に陥ることを防ぐため，$c_j$および$\hat{c}_j$を$k$で除し，計算の安定化を図っている．
 得られた正則化の損失$L_{reg}$を，正則化係数$\lambda_{reg}$で重みづけし，以下のように全体の損失を計算する．
 \begin{equation}
-	L_{total} = (1-\lambda_{reg})L_image + \lambda_{reg}(L_{reg})
+	L_{total} = (1-\lambda_{reg})L_{image} + \lambda_{reg}(L_{reg})
 \end{equation}
+ここで，$L_{image}$は式\ref{eq:l_image}で定義される通常の3DGSで用いられる画像類似度に対する損失である．
 この損失の最小化を目的とし，ガウシアン，MLP，focal distance $d_f$， 比例定数$k$のパラメタを最適化する．
+\begin{figure}[h]
+	\centering
+	\includegraphics[width=0.5\linewidth]{images/chapter3/loss_reg.png}
+	\caption[深度に基づく正則化の損失の概要図]{深度に基づく正則化の損失の概要図．各ガウシアン（青）の拡大幅と，対応する深度での推定ボケ幅（赤）の差を誤差とする．
+	誤差の全ガウシアンでの合計を正則化項とし最小化を図ることで，ガウシアンの拡大幅がピンボケの幾何学的条件\ref{eq:coc}に近づく．}
+	\label{fig:loss_reg}
+\end{figure}
 
 \subsection{カメラ標定要素修正を伴う三次元モデルの最適化}\label{subsec:pose_correction}
+本節では，カメラ標定要素修正を伴う三次元モデルの最適化について説明する．
+
 \subsubsection{空間変換を用いたガウシアンとカメラ標定要素の交互最適化}\label{subsubsec:sequential_optimization}
 \subsubsection{重み付けによる修正量の調整}
 \subsubsection*{閾値による修正の判別}
 \subsubsection*{画像誤差を用いた学習率の調整}
-\cite{3d_warping}
